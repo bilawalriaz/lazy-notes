@@ -1,0 +1,6 @@
+# Python dependencies for this project
+# Note: ffmpeg is required on your system for audio processing (install via Homebrew: brew install ffmpeg)
+
+faster-whisper
+watchdog
+requests
