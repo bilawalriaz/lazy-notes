@@ -14,8 +14,21 @@ from faster_whisper import WhisperModel
 INPUT_DIR = "notes/input"
 PROCESSED_DIR = "notes/processed"
 DB_FILE = "notes.db"
-WHISPER_MODEL = "medium.en"
+WHISPER_MODEL = "small.en"
+
+# --- LLM Configuration ---
+# Set this to "lm_studio" or "ollama"
+LLM_PROVIDER = "ollama" 
+
+# LM Studio Configuration
 LM_STUDIO_API_URL = "http://localhost:1234/v1/chat/completions"
+LM_STUDIO_TEMPERATURE = 0.2
+
+# Ollama Configuration
+OLLAMA_API_URL = "http://localhost:11434/api/chat" # default ollama API URL
+OLLAMA_MODEL = "qwen3:4b"
+OLLAMA_CONTEXT_WINDOW = 8000
+OLLAMA_TEMPERATURE = 0.6
 
 # --- Model Initialization ---
 # This is done once when the script starts.
@@ -112,24 +125,50 @@ def process_with_llm(transcript_path):
     [Your chosen tags here]
     """
 
-    # --- LM Studio API Call ---
+    content = ""
     try:
-        response = requests.post(
-            LM_STUDIO_API_URL,
-            headers={"Content-Type": "application/json"},
-            json={
-                "messages": [
-                    {"role": "system", "content": "You are a helpful assistant."}, 
-                    {"role": "user", "content": prompt}
-                ],
-                "temperature": 0.2,
-            }
-        )
-        response.raise_for_status()  # Raise an exception for bad status codes
+        if LLM_PROVIDER == "lm_studio":
+            print("Using LM Studio for processing...")
+            response = requests.post(
+                LM_STUDIO_API_URL,
+                headers={"Content-Type": "application/json"},
+                json={
+                    "messages": [
+                        {"role": "system", "content": "You are a helpful assistant."}, 
+                        {"role": "user", "content": prompt}
+                    ],
+                    "temperature": LM_STUDIO_TEMPERATURE,
+                }
+            )
+            response.raise_for_status()  # Raise an exception for bad status codes
+            data = response.json()
+            content = data['choices'][0]['message']['content']
+
+        elif LLM_PROVIDER == "ollama":
+            print("Using Ollama for processing...")
+            response = requests.post(
+                OLLAMA_API_URL,
+                headers={"Content-Type": "application/json"},
+                json={
+                    "model": OLLAMA_MODEL,
+                    "messages": [
+                        {"role": "system", "content": "You are a helpful assistant."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    "stream": False,
+                    "options": {
+                        "temperature": OLLAMA_TEMPERATURE,
+                        "num_ctx": OLLAMA_CONTEXT_WINDOW
+                    }
+                }
+            )
+            response.raise_for_status()
+            data = response.json()
+            content = data['message']['content']
         
-        data = response.json()
-        content = data['choices'][0]['message']['content']
-        
+        else:
+            raise ValueError(f"Invalid LLM_PROVIDER: {LLM_PROVIDER}. Please choose 'lm_studio' or 'ollama'.")
+
         # Parse the response from the LLM
         title = content.split("**Title:**")[1].split("**Cleaned Transcript:**")[0].strip()
         cleaned_transcript = content.split("**Cleaned Transcript:**")[1].split("**Category:**")[0].strip()
@@ -139,7 +178,14 @@ def process_with_llm(transcript_path):
         return title, cleaned_transcript, category, tags
 
     except requests.exceptions.RequestException as e:
-        print(f"Error calling LM Studio API: {e}")
+        print(f"Error calling {LLM_PROVIDER} API: {e}")
+        return "Error generating title.", "Error processing transcript.", "Error", ""
+    except (KeyError, IndexError) as e:
+        print(f"Error parsing LLM response: {e}")
+        print(f"LLM Raw Response: {content}")
+        return "Error parsing title.", "Error parsing transcript.", "Error", ""
+    except ValueError as e:
+        print(e)
         return "Error generating title.", "Error processing transcript.", "Error", ""
 
 
