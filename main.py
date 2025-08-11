@@ -5,6 +5,8 @@ import sqlite3
 import json
 import requests
 import re
+import subprocess
+import tempfile
 from datetime import datetime
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
@@ -18,7 +20,7 @@ WHISPER_MODEL = "small.en"
 
 # --- LLM Configuration ---
 # Set this to "lm_studio" or "ollama"
-LLM_PROVIDER = "ollama" 
+LLM_PROVIDER = "lm_studio"
 
 # LM Studio Configuration
 LM_STUDIO_API_URL = "http://localhost:1234/v1/chat/completions"
@@ -68,8 +70,35 @@ def transcribe_audio(file_path):
     
     transcript_json_path = os.path.join(output_path, "transcript.json")
     
+    # Create a temporary file path for the WAV file
+    temp_wav_path = os.path.join(tempfile.gettempdir(), f"{os.path.basename(file_path)}.wav")
+
     try:
-        segments, info = model.transcribe(file_path, beam_size=5)
+        # Convert audio to a standardized WAV format that Whisper prefers
+        # This helps avoid issues with various audio formats and codecs.
+        # It requires ffmpeg to be installed on the system.
+        command = [
+            "ffmpeg",
+            "-i", file_path,
+            "-ar", "16000",      # Resample to 16kHz
+            "-ac", "1",          # Convert to mono
+            "-c:a", "pcm_s16le", # Use 16-bit PCM codec
+            "-y",                # Overwrite output file if it exists
+            temp_wav_path
+        ]
+        
+        print("Converting audio to a compatible WAV format using ffmpeg...")
+        result = subprocess.run(command, capture_output=True, text=True)
+
+        if result.returncode != 0:
+            # If ffmpeg is not found, FileNotFoundError will be raised by subprocess.run
+            # This handles other ffmpeg errors.
+            print(f"Error during ffmpeg conversion for {file_path}.")
+            print(f"ffmpeg stderr: {result.stderr}")
+            return None
+
+        # Transcribe the converted WAV file
+        segments, info = model.transcribe(temp_wav_path, beam_size=5)
         
         print(f"Detected language '{info.language}' with probability {info.language_probability}")
         
@@ -83,9 +112,17 @@ def transcribe_audio(file_path):
             
         print(f"Transcription successful. Output saved to {transcript_json_path}")
         return transcript_json_path
-    except Exception as e:
-        print(f"Error during transcription: {e}")
+    except FileNotFoundError:
+        print("Error: `ffmpeg` command not found.")
+        print("Please install ffmpeg on your system to proceed. On Debian/Ubuntu: sudo apt update && sudo apt install ffmpeg")
         return None
+    except Exception as e:
+        print(f"An unexpected error occurred during transcription: {e}")
+        return None
+    finally:
+        # Clean up the temporary WAV file
+        if os.path.exists(temp_wav_path):
+            os.remove(temp_wav_path)
 
 # --- LLM Interaction ---
 def process_with_llm(transcript_path):
