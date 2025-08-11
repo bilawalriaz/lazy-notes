@@ -20,6 +20,7 @@ INPUT_DIR = "notes/input"
 PROCESSED_DIR = "notes/processed"
 DB_FILE = "notes.db"
 WHISPER_MODEL = "large-v3-turbo"
+WHISPER_CPU_THREADS = int(os.environ.get("WHISPER_CPU_THREADS", 8))
 
 # --- LLM Configuration ---
 # Set this to "lm_studio", "ollama", or "openrouter"
@@ -45,7 +46,7 @@ OPENROUTER_TEMPERATURE = 0.2
 # This is done once when the script starts.
 # For CPU usage. For GPU, you can use device="cuda" and compute_type="float16"
 print("Initializing Whisper model...")
-model = WhisperModel(WHISPER_MODEL, device="cpu", compute_type="int8")
+model = WhisperModel(WHISPER_MODEL, device="cpu", compute_type="int8", cpu_threads=WHISPER_CPU_THREADS)
 print("Whisper model initialized.")
 
 
@@ -279,6 +280,10 @@ class AudioFileHandler(FileSystemEventHandler):
     def on_created(self, event):
         if not event.is_directory:
             print(f"New file detected: {event.src_path}")
+
+            # Add a delay to allow the file to be fully written, which can prevent
+            # the "moov atom not found" error with ffmpeg on some filesystems.
+            time.sleep(2)
 
             # 1. Extract info from file
             location = os.path.splitext(os.path.basename(event.src_path))[0]
