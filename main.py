@@ -19,8 +19,8 @@ load_dotenv()
 INPUT_DIR = "notes/input"
 PROCESSED_DIR = "notes/processed"
 DB_FILE = "notes.db"
-WHISPER_MODEL = "large-v3-turbo"
-WHISPER_CPU_THREADS = int(os.environ.get("WHISPER_CPU_THREADS", 8))
+WHISPER_MODEL = "turbo"
+WHISPER_CPU_THREADS = int(os.environ.get("WHISPER_CPU_THREADS", 8)) # set to number of CPU cores you have
 
 # --- LLM Configuration ---
 # Set this to "lm_studio", "ollama", or "openrouter"
@@ -34,7 +34,7 @@ LM_STUDIO_TEMPERATURE = 0.2
 OLLAMA_API_URL = "http://localhost:11434/api/chat" # default ollama API URL
 OLLAMA_MODEL = "qwen3:4b"
 OLLAMA_CONTEXT_WINDOW = 8000
-OLLAMA_TEMPERATURE = 0.6
+OLLAMA_TEMPERATURE = 0.2
 
 # OpenRouter Configuration
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
@@ -65,7 +65,9 @@ def init_db():
             category TEXT,
             location TEXT,
             recorded_at TIMESTAMP,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            transcription_time REAL,
+            llm_processing_time REAL
         )
     ''')
     conn.commit()
@@ -74,6 +76,7 @@ def init_db():
 # --- Transcription ---
 def transcribe_audio(file_path):
     print(f"Transcribing {file_path}...")
+    start_time = time.time()
     output_filename = os.path.splitext(os.path.basename(file_path))[0]
     output_path = os.path.join(PROCESSED_DIR, output_filename)
     os.makedirs(output_path, exist_ok=True)
@@ -105,7 +108,7 @@ def transcribe_audio(file_path):
             # This handles other ffmpeg errors.
             print(f"Error during ffmpeg conversion for {file_path}.")
             print(f"ffmpeg stderr: {result.stderr}")
-            return None
+            return None, 0
 
         # Transcribe the converted WAV file
         segments, info = model.transcribe(temp_wav_path, beam_size=5)
@@ -121,14 +124,16 @@ def transcribe_audio(file_path):
             json.dump(transcript_data, f, indent=4)
             
         print(f"Transcription successful. Output saved to {transcript_json_path}")
-        return transcript_json_path
+        end_time = time.time()
+        transcription_time = end_time - start_time
+        return transcript_json_path, transcription_time
     except FileNotFoundError:
         print("Error: `ffmpeg` command not found.")
         print("Please install ffmpeg on your system to proceed. On Debian/Ubuntu: sudo apt update && sudo apt install ffmpeg")
-        return None
+        return None, 0
     except Exception as e:
         print(f"An unexpected error occurred during transcription: {e}")
-        return None
+        return None, 0
     finally:
         # Clean up the temporary WAV file
         if os.path.exists(temp_wav_path):
@@ -137,6 +142,7 @@ def transcribe_audio(file_path):
 # --- LLM Interaction ---
 def process_with_llm(transcript_path):
     print(f"Processing transcript with LLM: {transcript_path}")
+    start_time = time.time()
     
     with open(transcript_path, 'r') as f:
         transcript_data = json.load(f)
@@ -246,18 +252,20 @@ def process_with_llm(transcript_path):
         category = content.split("**Category:**")[1].split("**Tags:**")[0].strip()
         tags = content.split("**Tags:**")[1].strip()
 
-        return title, cleaned_transcript, category, tags
+        end_time = time.time()
+        llm_processing_time = end_time - start_time
+        return title, cleaned_transcript, category, tags, llm_processing_time
 
     except requests.exceptions.RequestException as e:
         print(f"Error calling {LLM_PROVIDER} API: {e}")
-        return "Error generating title.", "Error processing transcript.", "Error", ""
+        return "Error generating title.", "Error processing transcript.", "Error", "", 0
     except (KeyError, IndexError) as e:
         print(f"Error parsing LLM response: {e}")
         print(f"LLM Raw Response: {content}")
-        return "Error parsing title.", "Error parsing transcript.", "Error", ""
+        return "Error parsing title.", "Error parsing transcript.", "Error", "", 0
     except ValueError as e:
         print(e)
-        return "Error generating title.", "Error processing transcript.", "Error", ""
+        return "Error generating title.", "Error processing transcript.", "Error", "", 0
 
 
 def sanitize_filename(filename):
@@ -293,12 +301,15 @@ class AudioFileHandler(FileSystemEventHandler):
             date_str = recorded_at_dt.strftime('%Y-%m-%d')
             
             # 2. Transcribe the audio file
-            transcript_path = transcribe_audio(event.src_path)
+            transcript_path, transcription_time = transcribe_audio(event.src_path)
             
             if transcript_path:
                 # 3. Process the transcript with the LLM
-                title, cleaned_transcript, category, tags = process_with_llm(transcript_path)
+                title, cleaned_transcript, category, tags, llm_processing_time = process_with_llm(transcript_path)
                 
+                print(f"Transcription time: {transcription_time:.2f} seconds")
+                print(f"LLM processing time: {llm_processing_time:.2f} seconds")
+
                 # 4. Sanitize title and create new folder name
                 sanitized_title = sanitize_filename(title)
                 folder_name = f"{date_str}_{sanitized_title}"
@@ -335,9 +346,9 @@ class AudioFileHandler(FileSystemEventHandler):
                 conn = sqlite3.connect(DB_FILE)
                 c = conn.cursor()
                 c.execute('''
-                    INSERT INTO notes (original_audio_path, raw_transcript_path, processed_transcript_path, title, tags, category, location, recorded_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                ''', (event.src_path, new_transcript_path, processed_md_path, title, tags, category, location, recorded_at_iso))
+                    INSERT INTO notes (original_audio_path, raw_transcript_path, processed_transcript_path, title, tags, category, location, recorded_at, transcription_time, llm_processing_time)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (event.src_path, new_transcript_path, processed_md_path, title, tags, category, location, recorded_at_iso, transcription_time, llm_processing_time))
                 conn.commit()
                 conn.close()
                 print("Note saved to database.")
