@@ -3,4 +3,5 @@ notes/processed/*
 notes.db
 packages
 .DS_Store
+.env
 __pycache__/

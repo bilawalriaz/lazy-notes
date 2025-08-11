@@ -11,16 +11,19 @@ from datetime import datetime
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from faster_whisper import WhisperModel
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # --- Configuration ---
 INPUT_DIR = "notes/input"
 PROCESSED_DIR = "notes/processed"
 DB_FILE = "notes.db"
-WHISPER_MODEL = "small.en"
+WHISPER_MODEL = "large-v3-turbo"
 
 # --- LLM Configuration ---
-# Set this to "lm_studio" or "ollama"
-LLM_PROVIDER = "lm_studio"
+# Set this to "lm_studio", "ollama", or "openrouter"
+LLM_PROVIDER = "openrouter"
 
 # LM Studio Configuration
 LM_STUDIO_API_URL = "http://localhost:1234/v1/chat/completions"
@@ -31,6 +34,12 @@ OLLAMA_API_URL = "http://localhost:11434/api/chat" # default ollama API URL
 OLLAMA_MODEL = "qwen3:4b"
 OLLAMA_CONTEXT_WINDOW = 8000
 OLLAMA_TEMPERATURE = 0.6
+
+# OpenRouter Configuration
+OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
+OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
+OPENROUTER_MODEL = "z-ai/glm-4-32b"
+OPENROUTER_TEMPERATURE = 0.2
 
 # --- Model Initialization ---
 # This is done once when the script starts.
@@ -202,9 +211,33 @@ def process_with_llm(transcript_path):
             response.raise_for_status()
             data = response.json()
             content = data['message']['content']
+
+        elif LLM_PROVIDER == "openrouter":
+            print("Using OpenRouter for processing...")
+            if not OPENROUTER_API_KEY:
+                raise ValueError("OPENROUTER_API_KEY environment variable not set.")
+            
+            response = requests.post(
+                OPENROUTER_API_URL,
+                headers={
+                    "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": OPENROUTER_MODEL,
+                    "messages": [
+                        {"role": "system", "content": "You are a helpful assistant."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    "temperature": OPENROUTER_TEMPERATURE,
+                }
+            )
+            response.raise_for_status()
+            data = response.json()
+            content = data['choices'][0]['message']['content']
         
         else:
-            raise ValueError(f"Invalid LLM_PROVIDER: {LLM_PROVIDER}. Please choose 'lm_studio' or 'ollama'.")
+            raise ValueError(f"Invalid LLM_PROVIDER: {LLM_PROVIDER}. Please choose 'lm_studio', 'ollama', or 'openrouter'.")
 
         # Parse the response from the LLM
         title = content.split("**Title:**")[1].split("**Cleaned Transcript:**")[0].strip()

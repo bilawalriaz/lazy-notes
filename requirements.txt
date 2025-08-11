@@ -4,3 +4,4 @@
 faster-whisper
 watchdog
 requests
+python-dotenv
