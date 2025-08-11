@@ -1,7 +1,6 @@
 
 import os
 import time
-import subprocess
 import sqlite3
 import json
 import requests
@@ -9,6 +8,7 @@ import re
 from datetime import datetime
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
+from faster_whisper import WhisperModel
 
 # --- Configuration ---
 INPUT_DIR = "notes/input"
@@ -16,6 +16,14 @@ PROCESSED_DIR = "notes/processed"
 DB_FILE = "notes.db"
 WHISPER_MODEL = "medium.en"
 LM_STUDIO_API_URL = "http://localhost:1234/v1/chat/completions"
+
+# --- Model Initialization ---
+# This is done once when the script starts.
+# For CPU usage. For GPU, you can use device="cuda" and compute_type="float16"
+print("Initializing Whisper model...")
+model = WhisperModel(WHISPER_MODEL, device="cpu", compute_type="int8")
+print("Whisper model initialized.")
+
 
 # --- Database Setup ---
 def init_db():
@@ -47,25 +55,22 @@ def transcribe_audio(file_path):
     
     transcript_json_path = os.path.join(output_path, "transcript.json")
     
-    command = [
-        "whisper-mps",
-        "--file-name",
-        file_path,
-        "--model-name",
-        WHISPER_MODEL,
-        
-    ]
-    
     try:
-        subprocess.run(command, check=True)
+        segments, info = model.transcribe(file_path, beam_size=5)
         
-        # Move and rename the output file
-        default_output_path = "output.json"
-        os.rename(default_output_path, transcript_json_path)
+        print(f"Detected language '{info.language}' with probability {info.language_probability}")
         
+        # The transcription is a generator, consume it to get the text
+        full_text = "".join(segment.text for segment in segments)
+        
+        transcript_data = {"text": full_text}
+        
+        with open(transcript_json_path, 'w') as f:
+            json.dump(transcript_data, f, indent=4)
+            
         print(f"Transcription successful. Output saved to {transcript_json_path}")
         return transcript_json_path
-    except (subprocess.CalledProcessError, FileNotFoundError) as e:
+    except Exception as e:
         print(f"Error during transcription: {e}")
         return None
 
