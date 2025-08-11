@@ -87,7 +87,7 @@ def process_with_llm(transcript_path):
     ---
 
     Please perform the following tasks:
-    1.  Clean up the transcript: Correct any obvious transcription errors, fix punctuation, and format it for readability. Fix any excessive verbal fillers (e.g., "um", "uh", "so").
+    1.  Clean up the transcript: Correct any obvious transcription errors, fix punctuation, and format it for readability. Fix any excessive verbal fillers (e.g., "um", "uh", "so"). Otherwise, do not make any changes, don't summarise, just clean the transcript.
     2.  Suggest a concise and descriptive title for the note.
     3.  Categorise the note: Choose a single, relevant category for this note (e.g., "Work", "Personal", "Ideas", "Meeting").
     4.  Tag the note: Provide a few relevant tags, separated by commas (e.g., "project-management, team-meeting, Q3-planning").
