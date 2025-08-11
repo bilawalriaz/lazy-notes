@@ -1,0 +1,6 @@
+notes/input/*
+notes/processed/*
+notes.db
+packages
+.DS_Store
+__pycache__/
