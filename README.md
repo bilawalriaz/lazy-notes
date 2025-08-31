@@ -93,15 +93,6 @@ Folders
 - Output: `notes/processed/<date_title>/`
 - Database: `notes.db`
 
-## Portfolio value
-
-This project showcases:
-- End-to-end automation with filesystem events
-- Speech-to-text with faster-whisper and pragmatic audio preprocessing
-- Multi-provider LLM integration (LM Studio, Ollama, OpenRouter)
-- Data plumbing: structured file outputs and SQLite persistence
-- Practical prompt engineering for deterministic formatting
-
 ## Troubleshooting
 
 - ffmpeg not found: install via Homebrew (`brew install ffmpeg`) or your package manager
