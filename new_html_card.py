@@ -1,8 +1,27 @@
 import os
 import json
+import difflib
 from datetime import datetime
 
-def create_html_card(structured_data, original_transcript, output_path):
+def create_transcript_diff_html(original, cleaned):
+    """Generates an HTML diff of two transcripts."""
+    original_words = original.split()
+    cleaned_words = cleaned.split()
+    s = difflib.SequenceMatcher(None, original_words, cleaned_words)
+    html = []
+    for tag, i1, i2, j1, j2 in s.get_opcodes():
+        if tag == 'replace':
+            html.append('<del>' + ' '.join(original_words[i1:i2]) + '</del>')
+            html.append('<ins>' + ' '.join(cleaned_words[j1:j2]) + '</ins>')
+        elif tag == 'delete':
+            html.append('<del>' + ' '.join(original_words[i1:i2]) + '</del>')
+        elif tag == 'insert':
+            html.append('<ins>' + ' '.join(cleaned_words[j1:j2]) + '</ins>')
+        elif tag == 'equal':
+            html.append(' '.join(cleaned_words[j1:j2]))
+    return ' '.join(html)
+
+def create_html_card(structured_data, original_transcript, output_path, transcription_time=0, llm_time=0, total_time=0, audio_duration=0):
     """Create a modern HTML card based on the newcard React component."""
     
     # Extract data with safe defaults
@@ -140,6 +159,13 @@ def create_html_card(structured_data, original_transcript, output_path):
     # Safely escape transcripts for JavaScript
     js_original_transcript = json.dumps(original_transcript) if original_transcript else '""'
     js_cleaned_transcript = json.dumps(cleaned_transcript)
+    diff_html = create_transcript_diff_html(original_transcript, cleaned_transcript)
+    js_diff_html = json.dumps(diff_html)
+
+    time_stats_html = f"""<span class="text-sm text-gray-500 flex items-center gap-1.5 font-medium">
+    <span data-lucide="clock" class="w-4 h-4"></span>
+    Generated in {total_time:.2f}s (Audio: {audio_duration:.2f}s, Transcription: {transcription_time:.2f}s, LLM: {llm_time:.2f}s)
+</span>"""
 
     html_content = f'''<!DOCTYPE html>
 <html lang="en">
@@ -163,6 +189,16 @@ def create_html_card(structured_data, original_transcript, output_path):
             font-size: 0.875rem;
             line-height: 1.25rem;
         }}
+        del {{
+            text-decoration: line-through;
+            background-color: #fee2e2; /* red-100 */
+            color: #991b1b; /* red-800 */
+        }}
+        ins {{
+            text-decoration: none;
+            background-color: #dcfce7; /* green-100 */
+            color: #166534; /* green-800 */
+        }}
     </style>
 </head>
 <body class="bg-background p-4">
@@ -174,10 +210,7 @@ def create_html_card(structured_data, original_transcript, output_path):
                         <h1 class="text-2xl font-bold text-gray-900 text-balance font-sans leading-tight">{title}</h1>
                         <div class="flex items-center gap-3 mt-3">
                             <span class="badge bg-blue-50 text-blue-700 border-blue-200 font-medium px-3 py-1">{category}</span>
-                            <span class="text-sm text-gray-500 flex items-center gap-1.5 font-medium">
-                                <span data-lucide="clock" class="w-4 h-4"></span>
-                                Just now
-                            </span>
+                            {time_stats_html}
                         </div>
                     </div>
                 </div>
@@ -186,7 +219,10 @@ def create_html_card(structured_data, original_transcript, output_path):
                 <div class="space-y-4">
                     <div class="flex items-center justify-between">
                         <h3 id="transcript-title" class="font-bold text-gray-900 text-lg">Cleaned Transcript</h3>
-                        {"<button id='toggle-button' class='flex items-center gap-2 border-gray-200 hover:bg-gray-50 rounded-md px-3 py-1 text-sm font-semibold' onclick='toggleTranscript()'><span data-lucide='toggle-left' class='w-4 h-4'></span><span id='toggle-text'>Show Original</span></button>" if original_transcript else ""}
+                        <div class="flex items-center gap-2">
+                            <button id='toggle-button' class='flex items-center gap-2 border-gray-200 hover:bg-gray-50 rounded-md px-3 py-1 text-sm font-semibold' onclick='toggleTranscript("original")'><span id='toggle-text-original'>Show Original</span></button>
+                            <button id='diff-button' class='flex items-center gap-2 border-gray-200 hover:bg-gray-50 rounded-md px-3 py-1 text-sm font-semibold' onclick='toggleTranscript("diff")'><span id='toggle-text-diff'>Show Diff</span></button>
+                        </div>
                     </div>
                     <div class="bg-gray-50 p-5 rounded-xl border border-gray-100">
                         <p id="transcript-text" class="text-gray-800 leading-relaxed whitespace-pre-wrap font-medium">{cleaned_transcript}</p>
@@ -219,26 +255,35 @@ def create_html_card(structured_data, original_transcript, output_path):
 
         const originalTranscript = {js_original_transcript};
         const cleanedTranscript = {js_cleaned_transcript};
-        let showingOriginal = false;
+        const diffHtml = {js_diff_html};
+        let currentView = 'cleaned'; // cleaned, original, diff
 
-        function toggleTranscript() {{
+        function toggleTranscript(view) {{
             const titleEl = document.getElementById('transcript-title');
             const textEl = document.getElementById('transcript-text');
-            const toggleTextEl = document.getElementById('toggle-text');
-            const toggleButtonEl = document.getElementById('toggle-button');
-            
-            showingOriginal = !showingOriginal;
+            const toggleOriginalButton = document.getElementById('toggle-text-original');
+            const toggleDiffButton = document.getElementById('toggle-text-diff');
 
-            if (showingOriginal) {{
-                titleEl.innerText = 'Original Transcript';
-                textEl.innerText = originalTranscript;
-                toggleTextEl.innerText = 'Show Cleaned';
-                toggleButtonEl.querySelector('span[data-lucide]').setAttribute('data-lucide', 'toggle-right');
-            }} else {{
+            if (view === currentView) {{
+                // If clicking the same button, toggle back to cleaned view
+                currentView = 'cleaned';
                 titleEl.innerText = 'Cleaned Transcript';
-                textEl.innerText = cleanedTranscript;
-                toggleTextEl.innerText = 'Show Original';
-                toggleButtonEl.querySelector('span[data-lucide]').setAttribute('data-lucide', 'toggle-left');
+                textEl.innerHTML = cleanedTranscript;
+                toggleOriginalButton.innerText = 'Show Original';
+                toggleDiffButton.innerText = 'Show Diff';
+            }} else {{
+                currentView = view;
+                if (view === 'original') {{
+                    titleEl.innerText = 'Original Transcript';
+                    textEl.innerHTML = originalTranscript;
+                    toggleOriginalButton.innerText = 'Show Cleaned';
+                    toggleDiffButton.innerText = 'Show Diff';
+                }} else if (view === 'diff') {{
+                    titleEl.innerText = 'Transcript Diff';
+                    textEl.innerHTML = diffHtml;
+                    toggleOriginalButton.innerText = 'Show Original';
+                    toggleDiffButton.innerText = 'Show Cleaned';
+                }}
             }}
             lucide.createIcons(); // Re-render icons
         }}

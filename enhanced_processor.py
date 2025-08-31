@@ -137,6 +137,23 @@ def count_tokens_estimate(text):
     """Rough estimation: ~4 characters per token for English text"""
     return len(text) / 4
 
+# --- Audio Duration ---
+def get_audio_duration(file_path):
+    """Get the duration of an audio file using ffprobe."""
+    command = [
+        "ffprobe",
+        "-v", "error",
+        "-show_entries", "format=duration",
+        "-of", "default=noprint_wrappers=1:nokey=1",
+        file_path
+    ]
+    try:
+        result = subprocess.run(command, capture_output=True, text=True, check=True)
+        return float(result.stdout)
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        # Fallback or error handling
+        return 0.0
+
 # --- Transcription ---
 def transcribe_audio(file_path):
     print(f"Transcribing {file_path} using {TRANSCRIPTION_MODEL.upper()}...")
@@ -275,11 +292,10 @@ def process_with_fine_tuned_llm(transcript_path):
         return {"success": False, "error": f"Unexpected error: {e}"}
 
 
-
 def sanitize_filename(filename):
     """Sanitizes a string to be used as a filename."""
     filename = filename.replace(' ', '_')
-    filename = re.sub(r'[^\w\\-_]', '', filename)
+    filename = re.sub(r'[^\w\-_]', '', filename)
     return filename[:50]
 
 # --- Enhanced File Handling ---
@@ -296,6 +312,9 @@ class EnhancedAudioFileHandler(FileSystemEventHandler):
             recorded_at_iso = recorded_at_dt.isoformat()
             date_str = recorded_at_dt.strftime('%Y-%m-%d')
             
+            # Get audio duration
+            audio_duration = get_audio_duration(event.src_path)
+            
             # 2. Transcribe the audio file
             transcript_path, transcription_time = transcribe_audio(event.src_path)
             
@@ -307,8 +326,12 @@ class EnhancedAudioFileHandler(FileSystemEventHandler):
                     structured_data = result["structured_data"]
                     processing_time = result["processing_time"]
                     
+                    total_time = transcription_time + processing_time
+                    
+                    print(f"Audio duration: {audio_duration:.2f} seconds")
                     print(f"Transcription time: {transcription_time:.2f} seconds")
                     print(f"LLM processing time: {processing_time:.2f} seconds")
+                    print(f"Total processing time: {total_time:.2f} seconds")
                     
                     # 4. Extract data for folder naming and database
                     title = structured_data.get("title", "Untitled Note")
@@ -343,7 +366,15 @@ class EnhancedAudioFileHandler(FileSystemEventHandler):
                     original_transcript = original_transcript_data.get("text", "")
                     
                     # 8. Create HTML card
-                    html_card_path = create_html_card(structured_data, original_transcript, new_output_dir)
+                    html_card_path = create_html_card(
+                        structured_data, 
+                        original_transcript, 
+                        new_output_dir,
+                        transcription_time=transcription_time,
+                        llm_time=processing_time,
+                        total_time=total_time,
+                        audio_duration=audio_duration
+                    )
                     
                     # 9. Save structured data as JSON
                     structured_json_path = os.path.join(new_output_dir, "structured_data.json")

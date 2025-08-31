@@ -2,7 +2,7 @@
 # Auto-generated configuration file
 
 # --- Transcription Model Configuration ---
-TRANSCRIPTION_MODEL = "whisper"
+TRANSCRIPTION_MODEL = "parakeet"
 
 # Whisper Configuration (only used when TRANSCRIPTION_MODEL = "whisper")
 WHISPER_MODEL = "turbo"  # Options: tiny, base, small, medium, large, turbo
