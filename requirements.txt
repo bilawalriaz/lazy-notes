@@ -5,3 +5,6 @@ faster-whisper
 watchdog
 requests
 python-dotenv
+pandas
+tiktoken
+
