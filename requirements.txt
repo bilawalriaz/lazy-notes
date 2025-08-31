@@ -1,10 +1,14 @@
 # Python dependencies for this project
 # Note: ffmpeg is required on your system for audio processing (install via Homebrew: brew install ffmpeg)
+# Note: ffmpeg is only required when using Whisper transcription model
 
-faster-whisper
+faster-whisper  # For Whisper transcription
+parakeet_mlx    # For Parakeet MLX transcription (Apple Silicon optimized)
 watchdog
 requests
 python-dotenv
 pandas
 tiktoken
+openai  # For LM Studio API compatibility
+pathlib
 
